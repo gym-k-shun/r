@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>TeX → 画像エクスポーター 🧮</title>
+<style>
+  :root{
+    --bg:#0b0b0f; --panel:#12121a; --card:#1a1a24; --ink:#e8e8f0; --sub:#9aa0aa;
+    --acc:#7c5cff; --acc-2:#25c2a0; --danger:#ff5c7c; --border:#2a2a36;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif}
+  header{position:sticky;top:0;z-index:10;background:linear-gradient(180deg,rgba(0,0,0,.7),rgba(0,0,0,.2));
+    border-bottom:1px solid var(--border);backdrop-filter:blur(8px)}
+  .wrap{max-width:1100px;margin:0 auto;padding:16px}
+  h1{margin:0;padding:10px 16px;font-size:18px}
+  .grid{display:grid;grid-template-columns:1.2fr .8fr;gap:16px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;
+    box-shadow:0 10px 30px rgba(0,0,0,.25)}
+  .card h2{margin:0;padding:12px 16px;border-bottom:1px solid var(--border);font-size:14px;color:var(--sub)}
+  textarea{width:100%;min-height:240px;background:#0f0f14;color:var(--ink);
+    border:none;outline:none;resize:vertical;padding:14px 16px;border-radius:0 0 16px 16px;
+    font-family:ui-monospace,Consolas,Monaco,Menlo,monospace;font-size:15px}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;padding:12px 16px;border-top:1px dashed var(--border);align-items:center}
+  .controls label{color:var(--sub);font-size:12px;display:flex;gap:6px;align-items:center}
+  .controls input[type="number"]{width:84px}
+  .btn{appearance:none;border:none;background:var(--acc);color:white;padding:10px 14px;border-radius:12px;cursor:pointer}
+  .btn.alt{background:var(--acc-2)}
+  .btn.ghost{background:transparent;border:1px solid var(--border);color:var(--ink)}
+  .btn.danger{background:var(--danger)}
+  .previewBox{padding:20px;display:flex;justify-content:center;align-items:center}
+  .previewInner{padding:18px;border-radius:12px;background:#11131a;min-height:240px}
+  .history{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;padding:12px}
+  .entry{background:var(--panel);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+  .entry pre{margin:0;padding:10px 12px;background:#0f0f14;color:#bcd}
+  .entry .thumb{padding:10px;display:flex;justify-content:center;align-items:center;background:#101218;min-height:100px}
+  .entry .buttons{display:flex;gap:8px;flex-wrap:wrap;padding:10px}
+  .badge{font-size:11px;color:var(--sub)}
+  mjx-container {font-size: 1.5em !important;}
+</style>
+
+<!-- MathJax v3 (SVG 出力) -->
+<script>
+  window.MathJax = {
+    loader: {load: ['input/tex', 'output/svg']},
+    tex: {packages: {'[+]': ['noerrors','noundefined']}},
+    svg: {fontCache:'none', scale:1, mtextInheritFont:true}
+  };
+</script>
+<script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+</head>
+<body>
+<header><h1>TeX → 画像エクスポーター 🧮</h1></header>
+
+<div class="wrap">
+  <div class="grid">
+    <section class="card">
+      <h2>入力</h2>
+      <textarea id="texarea" placeholder="TeX を入力（Ctrl/Cmd + S で保存）">
+I_n, J_n \;(n\in\mathbb{N}_0)\\
+I_n=\int_0^\pi x^n\cos x\,dx \quad J_n=\int_0^\pi x^n\sin x\,dx\\
+\text{とするとき，次の問に答えよ。}\\
+(1)\; n\ge 1のとき，I_nをJ_{n-1}の式で表せ\\
+(2)\; n\ge 1のとき，J_nをI_{n-1}の式で表せ
+      </textarea>
+      <div class="controls">
+        <label>スケール(解像度)：<input id="scale" type="number" min="0.25" step="0.25" value="3"></label>
+        <label>余白(px)：<input id="padding" type="number" min="0" value="20"></label>
+        <label>行間(px)：<input id="gap" type="number" min="0" value="12"></label>
+        <label>背景色：<input id="bgColor" type="color" value="#ffffff"></label>
+        <label>透明度(α)：<input id="bgAlpha" type="range" min="0" max="1" step="0.1" value="0"><span id="alphaVal">0.0</span></label>
+        <button class="btn ghost" id="typesetBtn">プレビュー更新</button>
+        <button class="btn" id="savePngBtn">PNGで保存</button>
+        <button class="btn alt" id="saveSvgBtn">SVGで保存</button>
+        <button class="btn danger" id="resetAll">履歴 全消し</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>プレビュー</h2>
+      <div class="previewBox"><div id="preview" class="previewInner"></div></div>
+      <div class="controls"><span class="badge">全文を一括 typeset。保存時は mjx-container の SVG を全部連結して 1 枚に。</span></div>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:16px">
+    <h2>履歴</h2>
+    <div id="history" class="history"></div>
+  </section>
+</div>
+
+<script>
+  const ta = document.getElementById('texarea');
+  const preview = document.getElementById('preview');
+  const historyEl = document.getElementById('history');
+  const scaleInput = document.getElementById('scale');
+  const paddingInput = document.getElementById('padding');
+  const gapInput = document.getElementById('gap');
+  const colorInput = document.getElementById('bgColor');
+  const alphaInput = document.getElementById('bgAlpha');
+  const alphaVal = document.getElementById('alphaVal');
+  const typesetBtn = document.getElementById('typesetBtn');
+  const savePngBtn = document.getElementById('savePngBtn');
+  const saveSvgBtn = document.getElementById('saveSvgBtn');
+  const resetAllBtn = document.getElementById('resetAll');
+
+  alphaInput.addEventListener('input', ()=> { alphaVal.textContent = Number(alphaInput.value).toFixed(1); });
+
+  // 履歴
+  let entries = [];
+  const saveLocal = () => localStorage.setItem('mathHistory.v4', JSON.stringify(entries));
+  const loadLocal = () => {
+    const raw = localStorage.getItem('mathHistory.v4');
+    entries = raw ? JSON.parse(raw) : [];
+    renderHistory();
+  };
+
+  // ===== プレビュー（全文一括 typeset） =====
+  async function renderPreview(tex) {
+    preview.innerHTML = '';
+    const node = document.createElement('div');
+    node.textContent = tex;        // ←全文をそのまま
+    preview.appendChild(node);
+
+    await MathJax.typesetPromise([preview]);
+
+    // 行間は mjx-container の margin で調整（見た目だけ）
+    const gap = Number(gapInput.value) || 0;
+    const boxes = preview.querySelectorAll('mjx-container');
+    boxes.forEach((c, i) => {
+      c.style.display = 'block';
+      c.style.margin = '0';
+      if (i < boxes.length - 1) c.style.marginBottom = `${gap}px`;
+    });
+
+    preview.style.background = '#11131a';
+  }
+
+  // 行間スライダの反映
+  gapInput.addEventListener('input', () => {
+    const gap = Number(gapInput.value) || 0;
+    const arr = preview.querySelectorAll('mjx-container');
+    arr.forEach((c, i) => c.style.marginBottom = (i < arr.length - 1) ? `${gap}px` : '0');
+  });
+
+  // ===== SVG → 画像読み込みユーティリティ =====
+  function svgToImage(svg){
+    const ser = new XMLSerializer();
+    const s = ser.serializeToString(svg);
+    const blob = new Blob([s], {type:'image/svg+xml;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    return new Promise((resolve,reject)=>{
+      img.onload = ()=>{ URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = e=>{ URL.revokeObjectURL(url); reject(e); };
+      img.src = url;
+    });
+  }
+
+  // 16進カラー + alpha → rgba()
+  function hexToRgbaString(hex, a){
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    const r = parseInt(m[1],16), g = parseInt(m[2],16), b = parseInt(m[3],16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  // ===== すべての SVG を連結して PNG にする =====
+  async function exportAllToPng(
+    {scale=2, padding=20, gap=12, color='#ffffff', alpha=0} = {},
+    container = preview
+  ){
+    const svgs = [...container.querySelectorAll('svg')];
+    if (svgs.length === 0) throw new Error('SVG が見つかりません');
+
+    const images = await Promise.all(svgs.map(svgToImage));
+    const maxW = Math.max(...images.map(im => im.width));
+    const totalH = images.reduce((s,im)=>s+im.height,0) + gap*(images.length-1);
+
+    const W = Math.ceil(maxW*scale + padding*2);
+    const H = Math.ceil(totalH*scale + padding*2);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d');
+
+    // 背景（alpha=0 なら完全透過）
+    if (alpha > 0){
+      ctx.fillStyle = hexToRgbaString(color, alpha);
+      ctx.fillRect(0,0,W,H);
+    }
+
+    ctx.imageSmoothingEnabled = true;
+    ctx.setTransform(scale,0,0,scale,padding,padding);
+
+    let y = 0;
+    for (const im of images){
+      const x = Math.round((maxW - im.width)/2); // 中央寄せ
+      ctx.drawImage(im, x, y);
+      y += im.height + gap;
+    }
+    return canvas.toDataURL('image/png');
+  }
+
+  // ===== すべての SVG を合体した 1 枚の SVG を作る =====
+  function exportAllToMergedSvg({gap=12, padding=20}, container = preview){
+    const svgs = [...container.querySelectorAll('svg')];
+    if (svgs.length === 0) throw new Error('SVG が見つかりません');
+
+    // viewBox 基準でサイズ計算
+    const parsed = svgs.map(svg=>{
+      const vb = svg.viewBox.baseVal;
+      const width = vb && vb.width ? vb.width : svg.getBBox().width;
+      const height = vb && vb.height ? vb.height : svg.getBBox().height;
+      return {svg, width, height};
+    });
+
+    const maxW = Math.max(...parsed.map(p=>p.width));
+    const totalH = parsed.reduce((s,p)=>s+p.height,0) + gap*(parsed.length-1);
+
+    const xmlns='http://www.w3.org/2000/svg';
+    const root = document.createElementNS(xmlns,'svg');
+    root.setAttribute('xmlns', xmlns);
+    root.setAttribute('width', maxW + padding*2);
+    root.setAttribute('height', totalH + padding*2);
+    root.setAttribute('viewBox', `0 0 ${maxW + padding*2} ${totalH + padding*2}`);
+
+    let y = padding;
+    for (const p of parsed){
+      const g = document.createElementNS(xmlns,'g');
+      const dx = padding + (maxW - p.width)/2;
+      g.setAttribute('transform', `translate(${dx},${y})`);
+      const clone = p.svg.cloneNode(true);
+      while (clone.firstChild) g.appendChild(clone.firstChild);
+      root.appendChild(g);
+      y += p.height + gap;
+    }
+    const ser = new XMLSerializer();
+    return new Blob([ser.serializeToString(root)], {type:'image/svg+xml;charset=utf-8'});
+  }
+
+  // ダウンロード utils
+  function downloadDataURL(url, name){
+    const a=document.createElement('a'); a.href=url; a.download=name; document.body.appendChild(a); a.click(); a.remove();
+  }
+  function downloadBlob(blob, name){
+    const url=URL.createObjectURL(blob); downloadDataURL(url, name); setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  }
+
+  // 履歴レンダ
+  function renderHistory(){
+    historyEl.innerHTML = '';
+    entries.forEach((tex, idx)=>{
+      const card = document.createElement('div'); card.className='entry';
+      const thumb = document.createElement('div'); thumb.className='thumb';
+      const pre = document.createElement('pre'); pre.textContent = tex;
+      const btns = document.createElement('div'); btns.className='buttons';
+
+      const bEdit = Object.assign(document.createElement('button'), {className:'btn ghost', textContent:'編集'});
+      const bDup  = Object.assign(document.createElement('button'), {className:'btn ghost', textContent:'複製'});
+      const bDel  = Object.assign(document.createElement('button'), {className:'btn danger', textContent:'削除'});
+
+      bEdit.onclick = ()=>{ ta.value=tex; renderPreview(ta.value); window.scrollTo({top:0,behavior:'smooth'}); };
+      bDup.onclick  = ()=>{ entries.push(tex); saveLocal(); renderHistory(); };
+      bDel.onclick  = ()=>{ entries.splice(idx,1); saveLocal(); renderHistory(); };
+
+      btns.append(bEdit,bDup,bDel); card.append(thumb, pre, btns); historyEl.prepend(card);
+
+      // サムネ（全文一括 typeset → 連結PNG）
+      (async()=>{
+        const tmp=document.createElement('div');
+        tmp.style.position='absolute'; tmp.style.left='-9999px';
+        tmp.textContent = tex;
+        document.body.appendChild(tmp);
+        await MathJax.typesetPromise([tmp]);
+        const dataURL = await exportAllToPng(
+          { scale:1, padding:6, gap:6, color:'#ffffff', alpha:0 },
+          tmp
+        );
+        const img=new Image(); img.src=dataURL; img.style.maxWidth='100%';
+        thumb.innerHTML=''; thumb.appendChild(img);
+        tmp.remove();
+      })();
+    });
+  }
+
+  // 入力&保存
+  let typingTimer;
+  ta.addEventListener('input', ()=>{
+    clearTimeout(typingTimer);
+    typingTimer=setTimeout(()=>renderPreview(ta.value), 200);
+  });
+  document.addEventListener('keydown', (e)=>{
+    if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='s'){
+      e.preventDefault();
+      const val=ta.value.trim(); if(!val) return;
+      entries.push(val); saveLocal(); renderHistory();
+    }
+  });
+
+  // ボタン
+  document.getElementById('typesetBtn').onclick = () => renderPreview(ta.value);
+
+  savePngBtn.onclick = async ()=>{
+    try{
+      const scale = Number(scaleInput.value)||2;
+      const padding = Number(paddingInput.value)||0;
+      const gap = Number(gapInput.value)||0;
+      const color = colorInput.value;
+      const alpha = Number(alphaInput.value)||0;
+      const dataURL = await exportAllToPng({scale, padding, gap, color, alpha});
+      const name = `formula_${alpha.toFixed(1)}.png`;
+      downloadDataURL(dataURL, name);
+    }catch(err){ alert('保存失敗: '+err.message); }
+  };
+
+  saveSvgBtn.onclick = ()=>{
+    try{
+      const padding = Number(paddingInput.value)||0;
+      const gap = Number(gapInput.value)||0;
+      const blob = exportAllToMergedSvg({gap, padding});
+      downloadBlob(blob, 'formula.svg');
+    }catch(err){ alert('保存失敗: '+err.message); }
+  };
+
+  resetAllBtn.onclick = ()=>{ if(confirm('すべての履歴を削除しますか？')){ entries=[]; saveLocal(); renderHistory(); } };
+
+  // ===== URLパラメータでTeX読み込み =====
+  function getParamTex() {
+    const params = new URLSearchParams(location.search);
+    if (!params.has('t')) return null;
+    const raw = params.get('t');
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+
+  // 初期化
+  (async ()=>{
+    await new Promise(r => (window.MathJax && MathJax.startup) ? r() : 
+      document.addEventListener('readystatechange',()=>r(),{once:true})
+    );
+
+    const texFromUrl = getParamTex();
+    if (texFromUrl) ta.value = texFromUrl;
+
+    await renderPreview(ta.value);
+    alphaVal.textContent = Number(alphaInput.value).toFixed(1);
+    loadLocal();
+  })();
+
+</script>
+</body>
+</html>
